@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OPC UA Simulator</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--fg:#1c2330;--mut:#667;--ac:#2563eb;--bd:#dde1e8}
+@media(prefers-color-scheme:dark){:root{--bg:#10141b;--card:#181e28;--fg:#e6e9ef;--mut:#8b94a5;--ac:#5b8cff;--bd:#2a3342}}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px system-ui,sans-serif}
+main{max-width:820px;margin:0 auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:14px}
+h1{font-size:20px;margin:8px 0 14px}.mut{color:var(--mut);font-size:13px}
+code{background:var(--bg);padding:2px 6px;border-radius:4px}
+.val{font-size:44px;font-variant-numeric:tabular-nums;font-weight:600}
+canvas{width:100%;height:220px;display:block}
+.row{display:flex;flex-wrap:wrap;gap:14px;align-items:end}
+label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--mut)}
+input{padding:7px;border:1px solid var(--bd);border-radius:6px;background:var(--bg);color:var(--fg);width:120px}
+button{padding:8px 14px;border:0;border-radius:6px;background:var(--ac);color:#fff;font-size:14px;cursor:pointer}
+button.s{background:var(--bd);color:var(--fg)}
+</style></head><body><main>
+<h1>OPC UA Simulator — <code>virtualMaster</code></h1>
+<div class="card">
+  <div class="mut">Current value (degrees)</div>
+  <div class="val" id="v">0.0</div>
+  <canvas id="c"></canvas>
+  <div class="mut" id="info"></div>
+</div>
+<div class="card row">
+  <label>Speed (°/s)<input id="speed" type="number" step="1"></label>
+  <label>Update interval (ms)<input id="iv" type="number" min="10" max="5000"></label>
+  <label>Set value (0–359)<input id="val" type="number" min="0" max="359"></label>
+  <button id="apply">Apply</button>
+  <button id="toggle" class="s">Pause</button>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const post=b=>fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json());
+let running=true;
+function show(s){running=s.running;$('toggle').textContent=running?'Pause':'Resume';
+  $('info').innerHTML=`Endpoint <code>${s.endpoint}</code> · Node <code>${s.nodeId}</code> (Double, writable)`;}
+fetch('/api/state').then(r=>r.json()).then(s=>{$('speed').value=s.speed;$('iv').value=s.intervalMs;show(s)});
+$('apply').onclick=()=>{const b={speed:parseFloat($('speed').value),intervalMs:parseFloat($('iv').value)};
+  const v=parseFloat($('val').value);if(!isNaN(v))b.value=v;post(b).then(show);$('val').value=''};
+$('toggle').onclick=()=>post({running:!running}).then(show);
+const pts=[],WIN=10000,cv=$('c'),ctx=cv.getContext('2d');
+new EventSource('/api/stream').onmessage=e=>{const d=JSON.parse(e.data);
+  $('v').textContent=d.v.toFixed(1);pts.push(d);const cut=d.t-WIN;while(pts[0].t<cut)pts.shift();};
+function draw(){const w=cv.width=cv.clientWidth*devicePixelRatio,h=cv.height=cv.clientHeight*devicePixelRatio;
+  const cs=getComputedStyle(document.body);ctx.clearRect(0,0,w,h);ctx.strokeStyle=cs.getPropertyValue('--bd');ctx.fillStyle=cs.getPropertyValue('--mut');
+  ctx.font=`${11*devicePixelRatio}px system-ui`;
+  for(const g of [0,90,180,270,360]){const y=h-8-(g/360)*(h-16);ctx.beginPath();ctx.moveTo(30*devicePixelRatio,y);ctx.lineTo(w,y);ctx.stroke();ctx.fillText(g,2,y+4)}
+  if(pts.length>1){const t1=pts[pts.length-1].t,x0=30*devicePixelRatio;ctx.strokeStyle=cs.getPropertyValue('--ac');ctx.lineWidth=2*devicePixelRatio;ctx.beginPath();
+    let prev=null;for(const p of pts){const x=x0+(1-(t1-p.t)/WIN)*(w-x0),y=h-8-(p.v/360)*(h-16);
+      if(prev===null||Math.abs(p.v-prev)>180)ctx.moveTo(x,y);else ctx.lineTo(x,y);prev=p.v}ctx.stroke();ctx.lineWidth=1}
+  requestAnimationFrame(draw)}
+draw();
+</script></main></body></html>
